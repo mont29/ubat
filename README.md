@@ -19,4 +19,6 @@ Example
 Take raw wav files from ./raw_wav dir, rename them for circuit 601, year 2015, pass 1, and output their split versions
 in current directory:
 
-   wav_splitter.py -s ./raw_wav -d . -R -c 601 -y 2015 -p 1
+```
+wav_splitter.py -s ./raw_wav -d . -R -c 601 -y 2015 -p 1
+```
