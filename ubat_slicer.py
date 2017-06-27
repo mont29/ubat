@@ -31,6 +31,9 @@ Vigie-Chiro bats survey project [1], mostly because no good solution existed for
 
 It will split wav files by channels and n seconds chunks (5 seconds by default, as expected by Vigie-Chiro).
 
+It will auto-detect the number of available channels in the recordings (typically, mono or stereo,
+but it can handle more if needed), and output split files accordingly.
+
 Optionally, it can also perform some simple renaming to generate fully compatible filenames (avoids the extra
 rename step prior to splitting audio files).
 
@@ -44,7 +47,12 @@ Example
 Take raw wav files from ./raw_wav dir, rename them for circuit 601, year 2015, pass 1, and output their split versions
 in current directory:
 
-   wav_splitter.py -s ./raw_wav -d . -R -c 601 -y 2015 -p 1
+   ubat_slicer.py -s ./raw_wav -d . -R -c 601 -y 2015 -p 1
+
+Take raw wav files from ./raw_wav dir, which are already expanded (sampling rate set to 19.2KHz instead of real 192KHz),
+rename them for circuit 601, year 2017, pass 3, and output their split versions in current directory:
+
+   ubat_slicer.py -s ./raw_wav -d . --speed-factor 10 -R -c 601 -y 2017 -p 3
 """
 
 import os
@@ -78,6 +86,11 @@ def argparse_create():
     parser.add_argument(
         "--executable_ffprobe", dest="executable_ffprobe", default="ffprobe", metavar='FFPROBE_EXECUTABLE',
         help="Path to the ffprobe executable (on *nix you can usually leave it to default)")
+
+    parser.add_argument("--speed-factor", dest="speed_fac", default=1, type=int,
+            help="Speed factor (some recorders directly save audio files with reported low sampling rate, "
+                 "which allows to play them back in time expanded way easily, "
+                 "e.g. reporting 60 minutes at 19.2KHz instead of 6 minutes at 192 KHz)")
 
     parser.add_argument("--chunk-size", dest="chunk_size", default=5, type=int,
             help="Size (length) of audio chunks to generate (in seconds, 5 by default)")
@@ -124,18 +137,26 @@ def main():
         print("Processing %s..." % f)
         fi = os.path.join(args.source_dir, f)
         f_name, f_ext = os.path.splitext(f)
-        fo_0 = os.path.join(args.dest_dir, "%s_0_%%05d_000%s" % (f_name, f_ext))
-        fo_1 = os.path.join(args.dest_dir, "%s_1_%%05d_000%s" % (f_name, f_ext))
+        fo_pattern = os.path.join(args.dest_dir, "%s_%%d_%%05d_000%s" % (f_name, f_ext))
         duration = float(subprocess.check_output((args.executable_ffprobe, "-v", "error", "-show_entries",
                                                   "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", fi)))
+        channels = int(subprocess.check_output((args.executable_ffprobe, "-v", "error", "-show_entries",
+                                                "stream=channels", "-of", "default=noprint_wrappers=1:nokey=1", fi)))
+        sample_rate = int(subprocess.check_output((args.executable_ffprobe, "-v", "error", "-show_entries",
+                                                   "stream=sample_rate", "-of", "default=noprint_wrappers=1:nokey=1", fi)))
+        duration /= args.speed_fac
+
         if args.do_fake:
             print("\tDetected duration: %f seconds" % duration)
-            print("\tWould split it in chunks of %d seconds, giving pairs of files like %s/%s"
-                  "" % (args.chunk_size, fo_0 % 0, fo_1 % 0))
+            print("\tWould split it in chunks of %d seconds, giving sets of files like {%s}"
+                  "" % (args.chunk_size, ", ".join((fo_pattern % (chann, 0) for chann in range(channels)))))
         else:
             for s in range(0, math.ceil(duration), args.chunk_size):
-                subprocess.call((args.executable_ffmpeg, "-v", "error", "-ss", "%d" % s, "-t", "%d" % args.chunk_size,
-                                 "-i", fi, "-map_channel", "0.0.0", fo_0 % s, "-map_channel", "0.0.1", fo_1 % s))
+                subprocess.call((args.executable_ffmpeg, "-v", "error",
+                                 "-i", fi, "-filter:a", "asetrate=%d" % (sample_rate * args.speed_fac),
+                                 "-ss", "%d" % s, "-t", "%d" % args.chunk_size) +
+                                 sum((("-map_channel", "0.0.%d" % chann, fo_pattern % (chann, s)) for chann in range(channels)), ()))
+
         print("Done\n")
 
 
