@@ -152,10 +152,10 @@ def main():
                   "" % (args.chunk_size, ", ".join((fo_pattern % (chann, 0) for chann in range(channels)))))
         else:
             for s in range(0, math.ceil(duration), args.chunk_size):
-                subprocess.call((args.executable_ffmpeg, "-v", "error",
-                                 "-i", fi, "-filter:a", "asetrate=%d" % (sample_rate * args.speed_fac),
-                                 "-ss", "%d" % s, "-t", "%d" % args.chunk_size) +
-                                 sum((("-map_channel", "0.0.%d" % chann, fo_pattern % (chann, s)) for chann in range(channels)), ()))
+                channel_ops = (("-ss", "%d" % s, "-t", "%d" % args.chunk_size) +
+                               ("-filter:a", "asetrate=%d" % (sample_rate * args.speed_fac)) if args.speed_fac != 1 else ())
+                subprocess.call((args.executable_ffmpeg, "-v", "error", "-i", fi) +
+                                 sum((channel_ops + ("-map_channel", "0.0.%d" % chann, fo_pattern % (chann, s)) for chann in range(channels)), ()))
 
         print("Done\n")
 
