@@ -44,15 +44,15 @@ Note: provided you install FFMPEG and define ffmpeg/ffprobe executable paths, th
 Example
 =======
 
-Take raw wav files from ./raw_wav dir, rename them for circuit 601, year 2015, pass 1, and output their split versions
+Take raw wav files from ./raw_wav dir, rename them for circuit 605, year 2015, pass 1, and output their split versions
 in current directory:
 
-   ubat_slicer.py -s ./raw_wav -d . -R -c 601 -y 2015 -p 1
+   ubat_slicer.py -s ./raw_wav -d . -R -c 605 -y 2015 -p 1
 
 Take raw wav files from ./raw_wav dir, which are already expanded (sampling rate set to 19.2KHz instead of real 192KHz),
-rename them for circuit 601, year 2017, pass 3, and output their split versions in current directory:
+rename them for circuit 605, year 2017, pass 3, and output their split versions in current directory:
 
-   ubat_slicer.py -s ./raw_wav -d . --speed-factor 10 -R -c 601 -y 2017 -p 3
+   ubat_slicer.py -s ./raw_wav -d . --speed-factor 10 -R -c 605 -y 2017 -p 3
 """
 
 import os
@@ -152,8 +152,7 @@ def main():
                   "" % (args.chunk_size, ", ".join((fo_pattern % (chann, 0) for chann in range(channels)))))
         else:
             for s in range(0, math.ceil(duration), args.chunk_size):
-                channel_ops = (("-ss", "%d" % s, "-t", "%d" % args.chunk_size) +
-                               ("-filter:a", "asetrate=%d" % (sample_rate * args.speed_fac)) if args.speed_fac != 1 else ())
+                channel_ops = ("-ss", "%d" % s, "-t", "%d" % args.chunk_size, "-filter:a", "asetrate=%d" % (sample_rate * args.speed_fac))
                 subprocess.call((args.executable_ffmpeg, "-v", "error", "-i", fi) +
                                  sum((channel_ops + ("-map_channel", "0.0.%d" % chann, fo_pattern % (chann, s)) for chann in range(channels)), ()))
 
