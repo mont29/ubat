@@ -122,7 +122,9 @@ def main():
             fo = os.path.join(args.source_dir, new_name)
             if args.do_fake:
                 files.append(f)
-                print("Would rename '%s' to '%s'" % (fi, fo))
+                print("Would rename '%s' to '%s' (new name does already exist: %r)" % (fi, fo, os.path.exists(fo)))
+            elif os.path.exists(fo):
+                print("NOT Renaming '%s' to '%s', as a file with target name already exists!" % (fi, fo))
             else:
                 files.append(new_name)
                 print("Renaming '%s' to '%s'" % (fi, fo))
