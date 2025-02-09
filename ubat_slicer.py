@@ -139,7 +139,7 @@ def main():
         print("Processing %s..." % f)
         fi = os.path.join(args.source_dir, f)
         f_name, f_ext = os.path.splitext(f)
-        fo_pattern = os.path.join(args.dest_dir, "%s_%%d_%%05d_000%s" % (f_name, f_ext))
+        fo_pattern = os.path.join(args.dest_dir, f"{f_name}_%d_%05d_000{f_ext}")
         duration = float(subprocess.check_output((args.executable_ffprobe, "-v", "error", "-show_entries",
                                                   "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", fi)))
         channels = int(subprocess.check_output((args.executable_ffprobe, "-v", "error", "-show_entries",
@@ -147,16 +147,41 @@ def main():
         sample_rate = int(subprocess.check_output((args.executable_ffprobe, "-v", "error", "-show_entries",
                                                    "stream=sample_rate", "-of", "default=noprint_wrappers=1:nokey=1", fi)))
         duration /= args.speed_fac
+        chunks_num = (math.ceil(duration) // args.chunk_size + int(bool(math.ceil(duration) % args.chunk_size)))
 
         if args.do_fake:
-            print("\tDetected duration: %f seconds" % duration)
-            print("\tWould split it in chunks of %d seconds, giving sets of files like {%s}"
-                  "" % (args.chunk_size, ", ".join((fo_pattern % (chann, 0) for chann in range(channels)))))
+            print(f"\tDetected duration: {duration} seconds")
+            print(
+                f"\tWould split it in {chunks_num} chunks of {args.chunk_size} seconds, "
+                f"giving sets of files like {', '.join((fo_pattern % (c, 0) for c in range(channels)))}"
+            )
         else:
-            for s in range(0, math.ceil(duration), args.chunk_size):
-                channel_ops = ("-ss", "%d" % s, "-t", "%d" % args.chunk_size, "-filter:a", "asetrate=%d" % (sample_rate * args.speed_fac))
-                subprocess.call((args.executable_ffmpeg, "-v", "error", "-i", fi) +
-                                 sum((channel_ops + ("-map_channel", "0.0.%d" % chann, fo_pattern % (chann, s)) for chann in range(channels)), ()))
+            # Write complex script into a temp text file, reduces the size of the ffmepg command.
+            complex_script_path = os.path.join(args.dest_dir, "ffmpeg_complex_script.txt")
+            with open(complex_script_path, "w") as script:
+                # Set target sample rate (different from input one in case there is some non-unit speed factor).
+                script.write(f"asetrate={sample_rate * args.speed_fac},\n")
+                # Split channels into individual named streams '[Cn]'.
+                script.write(f"channelsplit=channel_layout={channels}c{''.join([f'[C{c}]' for c in range(channels)])};\n")
+                for c in range(channels):
+                    # Split each channel into 'chunks_num' segments of 'chunk_size' length.
+                    # NOTE: last timestamp (last chunk of audio) is implied,
+                    #       which is why there is one less timestamp specified than streams generated.
+                    script.write(f"[C{c}]asegment=timestamps={'|'.join([str(i * args.chunk_size) for i in range(1, chunks_num)])}")
+                    # Capture all generated segments into named streams '[CnSn]'.
+                    script.write("".join([f"[C{c}S{i}]" for i in range(chunks_num)]) + ";\n")
+            # Generate all output files 'map' stream selectors and filenames.
+            outputs_map = []
+            outputs_files = []
+            for c in range(channels):
+                # Map selector of output stream from the complex filter (matches the one generated above, '[CnSn]').
+                outputs_map += [f"[C{c}S{i}]" for i in range(chunks_num)]
+                # And matching output filename.
+                outputs_files += [fo_pattern % (c, i * args.chunk_size) for i in range(chunks_num)]
+            # Process each input file in a single ffmpeg command.
+            subprocess.call([args.executable_ffmpeg, "-v", "error", "-i", fi, "-filter_complex_script", complex_script_path] +
+                            sum([["-map", m, fo] for m, fo in zip(outputs_map, outputs_files)], []))
+            os.remove(complex_script_path)
 
         print("Done\n")
 
